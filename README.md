@@ -52,8 +52,8 @@ Use this for actual acquisition:
 1. Copy `main.py` to the OpenMV board as `/main.py`.
 2. Disconnect the OpenMV IDE.
 3. From the host computer, use `host_control.py` to set time, start, status, and
-   stop recording. After stopping, use `shutdown` before unplugging/remounting
-   storage.
+   stop recording. After stopping, use `shutdown` to sync storage and reboot the
+   board into a fresh idle state.
 
 The saved `preview_0000.mjpeg` file is separate from IDE preview. It is a
 watchable movie written during recording for post-run inspection.
@@ -66,7 +66,17 @@ uv run host_control.py start --port /dev/ttyACM0 --monitor
 uv run host_control.py status --port /dev/ttyACM0
 uv run host_control.py stop --port /dev/ttyACM0
 uv run host_control.py shutdown --port /dev/ttyACM0
+uv run host_control.py hard-reset --port /dev/ttyACM0
 ```
+
+`shutdown` reboots the board: it sends `SHUTDOWN` (the board syncs storage and
+calls `machine.reset()`), then waits for the board to re-enumerate and answer
+again. The board is matched by its USB serial number, so a changed `COMx` /
+`/dev/ttyACM*` name after reset is fine. If the board is wedged and never
+acknowledges `SHUTDOWN`, `shutdown` automatically falls back to the OpenMV
+IDE-style hard reset. `hard-reset` skips the graceful attempt and forces that
+reset directly — use it when the recorder is unresponsive. Tune the wait with
+`--reboot-timeout` (default 8s).
 
 `start` sends the host computer's current local time to the OpenMV RTC first,
 then sends `START`. Use `--no-set-time` only if you have already set the RTC and
@@ -126,12 +136,14 @@ SET_TIME 2026-06-09T12:34:56
 ```
 
 `SHUTDOWN` is an idle-only command. Send `STOP` first if recording is active. It
-syncs storage and exits `main.py`, making it safer to unplug/reset before copying
-files from the OpenMV filesystem.
+syncs storage and then calls `machine.reset()`, performing a full reboot
+equivalent to pressing the RESET button. After reboot the board comes back idle
+(AUTOSTART is off), ready for `STATUS` / `START`.
 
 If host commands print back raw text like `STATUS`, `STOP`, or
 `SET_TIME ...START`, the board is echoing serial input rather than running the
-recorder command loop. Reset or power-cycle the board, wait for boot, then run:
+recorder command loop. Run `hard-reset` to reboot it (IDE-style), or
+reset/power-cycle the board by hand, wait for boot, then run:
 
 ```powershell
 uv run host_control.py probe --port COM3 --probe-seconds 2

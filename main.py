@@ -11,6 +11,7 @@
 
 import gc
 import image
+import machine
 import mjpeg
 import os
 import pyb
@@ -311,7 +312,7 @@ def print_help():
     print("  START")
     print("  STOP")
     print("  STATUS")
-    print("  SHUTDOWN")
+    print("  SHUTDOWN (sync + reboot board)")
     print("  HELP")
 
 
@@ -342,8 +343,13 @@ def wait_for_start(vcp):
                 os.sync()
             except Exception:
                 pass
-            print("SHUTDOWN complete. Safe to unplug or reset.")
-            return False
+            print("SHUTDOWN: syncing and rebooting board.")
+            pyb.delay(100)  # let the reply flush over USB before the reset drops it
+            try:
+                machine.reset()
+            except Exception as err:
+                print("machine.reset() failed:", err)
+                return False
         elif line:
             print("Unknown command:", line)
             print_help()
