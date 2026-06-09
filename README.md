@@ -49,11 +49,33 @@ Use this when you are physically setting up the experiment:
 
 Use this for actual acquisition:
 
-1. Copy `main.py` to the OpenMV board as `/main.py`.
+1. Copy `main.py` to the OpenMV board as `/main.py` (use `sync_board.py`, below).
 2. Disconnect the OpenMV IDE.
 3. From the host computer, use `host_control.py` to set time, start, status, and
    stop recording. After stopping, use `shutdown` to sync storage and reboot the
    board into a fresh idle state.
+
+### Keeping `main.py` in sync
+
+It is easy to leave an outdated `main.py` on the board; the stale code usually
+runs fine and only misbehaves on specific paths, which is hard to debug.
+`sync_board.py` checks the board against the local file and only acts if needed:
+
+```bash
+uv run sync_board.py            # check, and sync if the board differs
+uv run sync_board.py --check    # report needed/not-needed only; never write
+uv run sync_board.py --force    # copy even if already identical
+uv run sync_board.py --mount /media/$USER/OPENMV   # if auto-detect fails
+```
+
+It compares the local `main.py` with `main.py` on the board's mounted USB drive
+(auto-detected by the `OPENMV` filesystem label, or pass `--mount`). If they
+match it does nothing. If they differ it refuses to write while the board is
+recording, copies the file, verifies the bytes, then resets the board (via the
+same graceful-then-hard reset as `host_control.py shutdown`) so it boots the new
+code. Use `--no-reset` to copy without rebooting. Because the board only loads
+`main.py` at boot, a successful sync always reboots it, so the running code
+matches the file once the tool reports success.
 
 The saved `preview_0000.mjpeg` file is separate from IDE preview. It is a
 watchable movie written during recording for post-run inspection.
