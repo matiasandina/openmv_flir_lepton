@@ -8,6 +8,9 @@
 #
 # If the RTC is not already valid, send this line over USB serial:
 #   SET_TIME 2026-06-09T12:34:56
+#
+# Status LED: solid green = booting, solid blue = ready/idle,
+# blink blue = RTC not set, blink red = recording, solid red = storage error.
 
 import gc
 import image
@@ -41,6 +44,47 @@ STATUS_EVERY_FRAMES = 30
 ENABLE_RADIOMETRY_IF_AVAILABLE = True
 TEMP_MIN_C = 20.0
 TEMP_MAX_C = 40.0
+
+
+# ----------------------------- Status LED ------------------------------
+# OpenMV H7 RGB LED: pyb.LED(1)=red, (2)=green, (3)=blue. If a board maps the
+# colors differently, swap the indices below.
+#   init       solid green   booting / sensor warmup, not ready yet
+#   ready      solid blue    idle, RTC valid, waiting for START
+#   need_time  blink blue    idle but RTC not set; START refused until SET_TIME
+#   recording  blink red     recording
+#   error      solid red     storage/sensor failure
+
+_led_red = pyb.LED(1)
+_led_green = pyb.LED(2)
+_led_blue = pyb.LED(3)
+
+LED_BLINK_MS = 500  # half-period of the 1 Hz blink
+
+
+def _set_led(led, on):
+    if on:
+        led.on()
+    else:
+        led.off()
+
+
+def status_led(state):
+    blink_on = (time.ticks_ms() % (2 * LED_BLINK_MS)) < LED_BLINK_MS
+    red = green = blue = False
+    if state == "init":
+        green = True
+    elif state == "ready":
+        blue = True
+    elif state == "need_time":
+        blue = blink_on
+    elif state == "recording":
+        red = blink_on
+    elif state == "error":
+        red = True
+    _set_led(_led_red, red)
+    _set_led(_led_green, green)
+    _set_led(_led_blue, blue)
 
 
 # ----------------------------- Utilities -------------------------------
@@ -183,6 +227,7 @@ def wait_for_valid_rtc():
 
 
 def setup_lepton():
+    status_led("init")
     print("Resetting Lepton...")
     sensor.reset()
 
@@ -323,6 +368,7 @@ def wait_for_start(vcp):
         return True
 
     while True:
+        status_led("ready" if rtc_is_valid() else "need_time")
         line = read_command(vcp)
         if line == "START":
             if REQUIRE_VALID_RTC and not rtc_is_valid():
@@ -372,6 +418,8 @@ def main():
         if not mkdir(session_dir):
             print("Storage error: could not create session directory", session_dir)
             print("Check that the OpenMV filesystem or SD card is mounted/writable.")
+            status_led("error")
+            pyb.delay(2000)
             continue
 
         log_path = join_path(session_dir, "frames.csv")
@@ -380,6 +428,8 @@ def main():
         except OSError as err:
             print("Storage error: could not open", log_path, err)
             print("Check that the OpenMV filesystem or SD card is mounted/writable.")
+            status_led("error")
+            pyb.delay(2000)
             continue
         log.write(
             "frame,clip,raw_frame,preview_frame,ticks_ms,rtc_iso,fps,raw_bytes,preview_bytes,format,radiometry,temp_min_c,temp_max_c\n"
@@ -397,6 +447,7 @@ def main():
 
         try:
             while True:
+                status_led("recording")
                 command = read_command(vcp)
                 if command == "STOP":
                     print("STOP received.")

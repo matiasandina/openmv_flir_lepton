@@ -157,6 +157,19 @@ recorder protocol, such as `state=idle` or `state=recording`.
 If exactly one recorder answers, `--port` can be omitted for commands like
 `start`. If several answer, the script asks you to choose one explicitly.
 
+## Status LED
+
+The onboard RGB LED shows the recorder state at a glance (handy with several
+cameras side by side):
+
+| LED | State |
+|---|---|
+| solid green | booting / sensor warmup (not ready) |
+| solid blue | ready / idle (RTC valid), waiting for `START` |
+| blink blue | idle but RTC not set; `START` is refused until `SET_TIME` |
+| blink red | recording |
+| solid red | storage error (e.g. filesystem/SD not writable) |
+
 ## Recording control
 
 After boot and RTC setup, the board waits for serial commands:
