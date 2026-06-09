@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync main.py to the OpenMV board's USB drive and reboot it.
+r"""Sync main.py to the OpenMV board's USB drive and reboot it.
 
 Compares the local main.py with the copy on the board's mounted mass-storage
 drive. If they differ, copies the local file over, resets the board so it boots
@@ -8,7 +8,7 @@ the new code, and verifies the bytes landed.
     uv run sync_board.py              # check, and sync if needed
     uv run sync_board.py --check      # report only, never write
     uv run sync_board.py --force      # copy even if already identical
-    uv run sync_board.py --mount /media/$USER/OPENMV
+    uv run sync_board.py --mount E:\              # if auto-detect fails
     uv run sync_board.py --no-reset   # copy but leave resetting to you
 
 The board only loads main.py at boot, so a sync always resets the board after
@@ -26,7 +26,7 @@ import host_control as hc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SOURCE = os.path.join(HERE, "main.py")
-DEFAULT_LABEL = "OPENMV"
+DEFAULT_MARKER = ".openmv_disk"
 
 
 def read_bytes(path):
@@ -43,108 +43,72 @@ def describe(data):
     return "%s (%d bytes)" % (hashlib.sha256(data).hexdigest()[:8], len(data))
 
 
-def unescape_mount(path):
-    # /proc/mounts octal-escapes spaces (\040) and similar characters.
-    return path.encode().decode("unicode_escape")
+def drive_candidates():
+    # Roots that could be a mounted USB drive. On Windows these are drive letters;
+    # on Linux they are mount points under the usual removable-media locations.
+    if sys.platform.startswith("win"):
+        return windows_drive_roots()
+    return linux_mount_roots()
 
 
-def mountpoint_for_device(device):
-    try:
-        with open("/proc/mounts", "r") as handle:
-            for line in handle:
-                parts = line.split()
-                if len(parts) >= 2 and parts[0] == device:
-                    return unescape_mount(parts[1])
-    except OSError:
-        pass
-    return None
+def windows_drive_roots():
+    import ctypes
+    import string
+
+    kernel32 = ctypes.windll.kernel32
+    bitmask = kernel32.GetLogicalDrives()
+    drive_removable, drive_fixed = 2, 3  # skip remote/cdrom to avoid stalls
+    roots = []
+    for index, letter in enumerate(string.ascii_uppercase):
+        if not (bitmask >> index) & 1:
+            continue
+        root = "%s:\\" % letter
+        if kernel32.GetDriveTypeW(ctypes.c_wchar_p(root)) in (drive_removable, drive_fixed):
+            roots.append(root)
+    return roots
 
 
-def removable_mount_candidates():
-    candidates = []
+def linux_mount_roots():
+    roots = []
     user = os.environ.get("USER") or ""
     for base in ("/media/" + user, "/run/media/" + user, "/media", "/mnt"):
         if os.path.isdir(base):
             for name in sorted(os.listdir(base)):
                 full = os.path.join(base, name)
                 if os.path.isdir(full):
-                    candidates.append(full)
-    return candidates
+                    roots.append(full)
+    return roots
 
 
-def find_mount(explicit, label):
+def find_mount(explicit, marker):
+    # The OpenMV cam's mass-storage drive carries a marker file (.openmv_disk) at
+    # its root -- the same signal the OpenMV IDE uses. The volume label is not
+    # reliable (NO NAME / USB DRIVE / OPENMV vary), so we detect by the marker.
     if explicit:
         if not os.path.isdir(explicit):
             raise SystemExit("Mount path is not a directory: %s" % explicit)
+        if not os.path.exists(os.path.join(explicit, marker)):
+            print(
+                "Warning: %s has no %s marker; using it anyway." % (explicit, marker),
+                file=sys.stderr,
+            )
         return explicit
 
-    if sys.platform.startswith("win"):
-        return find_mount_windows(label)
-    return find_mount_linux(label)
-
-
-def find_mount_windows(label):
-    import ctypes
-    import string
-
-    kernel32 = ctypes.windll.kernel32
-    drives = kernel32.GetLogicalDrives()
-    buf_len = 261  # MAX_PATH + 1, in wide chars
-    matches = []
-    others = []
-    for index, letter in enumerate(string.ascii_uppercase):
-        if not (drives >> index) & 1:
-            continue
-        root = "%s:\\" % letter
-        name = ctypes.create_unicode_buffer(buf_len)
-        fstype = ctypes.create_unicode_buffer(buf_len)
-        ok = kernel32.GetVolumeInformationW(
-            ctypes.c_wchar_p(root), name, buf_len, None, None, None, fstype, buf_len
-        )
-        if not ok:
-            continue
-        if name.value.upper() == label.upper():
-            matches.append(root)
-        else:
-            others.append("%s (label %r)" % (root, name.value))
-
+    candidates = drive_candidates()
+    matches = [root for root in candidates if os.path.exists(os.path.join(root, marker))]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
         raise SystemExit(
-            "Multiple drives labeled %r: %s. Pass --mount." % (label, ", ".join(matches))
+            "Multiple drives contain %s: %s. Pass --mount." % (marker, ", ".join(matches))
         )
 
-    message = ["Could not find a drive labeled %r." % label]
-    if others:
-        message.append("Available drives (pass one with --mount, e.g. E:\\):")
-        message.extend("  " + entry for entry in others)
-    else:
-        message.append("No drives found. Pass --mount, e.g. E:\\.")
-    raise SystemExit("\n".join(message))
-
-
-def find_mount_linux(label):
-    # Resolve by filesystem label: /dev/disk/by-label/OPENMV -> /dev/sdb1, then
-    # look that device up in /proc/mounts to get its mount point.
-    link = "/dev/disk/by-label/%s" % label
-    if os.path.exists(link):
-        device = os.path.realpath(link)
-        mount = mountpoint_for_device(device)
-        if mount:
-            return mount
-        raise SystemExit(
-            "Drive labeled %r (%s) is not mounted. Mount it or pass --mount."
-            % (label, device)
-        )
-
-    message = ["Could not find a drive labeled %r." % label]
-    candidates = removable_mount_candidates()
+    message = ["Could not find an OpenMV drive (no %s on any mounted drive)." % marker]
     if candidates:
-        message.append("Candidate mounts (pass one with --mount):")
+        message.append("Drives checked (pass one with --mount):")
         message.extend("  " + path for path in candidates)
     else:
-        message.append("No removable drives under /media or /run/media. Pass --mount.")
+        message.append("No mounted drives found. Pass --mount.")
     raise SystemExit("\n".join(message))
 
 
@@ -173,8 +137,8 @@ def find_board(explicit, probe_seconds):
 def main():
     parser = argparse.ArgumentParser(description="Sync main.py to the OpenMV board.")
     parser.add_argument("--source", default=DEFAULT_SOURCE, help="Local file to deploy (default: main.py next to this script).")
-    parser.add_argument("--mount", default=None, help="OpenMV drive mount point. Auto-detected by label if omitted.")
-    parser.add_argument("--label", default=DEFAULT_LABEL, help="Filesystem label of the OpenMV drive (default: OPENMV).")
+    parser.add_argument("--mount", default=None, help="OpenMV drive mount point / letter. Auto-detected via the marker file if omitted.")
+    parser.add_argument("--marker", default=DEFAULT_MARKER, help="Marker file that identifies the OpenMV drive (default: .openmv_disk).")
     parser.add_argument("--check", action="store_true", help="Only report whether a sync is needed; do not write.")
     parser.add_argument("--force", action="store_true", help="Copy even if the board already matches.")
     parser.add_argument("--no-reset", action="store_true", help="Copy without resetting the board (reset it yourself).")
@@ -187,7 +151,7 @@ def main():
     if local is None:
         raise SystemExit("Local source not found: %s" % args.source)
 
-    mount = find_mount(args.mount, args.label)
+    mount = find_mount(args.mount, args.marker)
     target = os.path.join(mount, "main.py")
     onboard = read_bytes(target)
 
