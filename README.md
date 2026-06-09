@@ -141,6 +141,31 @@ uv run host_control.py stop --port COM3
 `host_control.py` is a separate host-computer command sender. Close/disconnect
 the OpenMV IDE before using it so it can open the board serial port.
 
+## Convert Preview Movies
+
+OpenMV `preview_0000.mjpeg` files are not reliably playable in ordinary Windows
+players. Convert them on the host with ffmpeg:
+
+```powershell
+uv run convert_mjpeg.py 20260609T142253 --overwrite
+```
+
+This reads `20260609T142253/frames.csv`, estimates each clip's actual FPS from
+the recorded `ticks_ms` timestamps, and writes:
+
+```text
+20260609T142253/preview_0000_640x480.mp4
+```
+
+The default conversion upscales 160x120 thermal frames to 640x480 with
+nearest-neighbor scaling for easier visual inspection. Disable scaling with:
+
+```powershell
+uv run convert_mjpeg.py 20260609T142253 --scale none --overwrite
+```
+
+ffmpeg and ffprobe must be installed and available on `PATH`.
+
 ## Recording settings
 
 The main settings are at the top of `main.py`:
