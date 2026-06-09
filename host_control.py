@@ -63,7 +63,7 @@ def resolve_port(explicit_port, probe_seconds):
     if explicit_port:
         return explicit_port
 
-    results = probe_recorders(probe_seconds, quiet=True)
+    results = probe_recorders(probe_seconds, quiet=True, progress=True)
     recorders = [result for result in results if result["recorder"]]
     if len(recorders) == 1:
         return recorders[0]["port"].device
@@ -178,9 +178,19 @@ def probe_recorder_port(port, seconds):
     }
 
 
-def probe_recorders(seconds, quiet=False, device=None):
+def probe_recorders(seconds, quiet=False, device=None, progress=False):
     ports = [find_serial_port(device)] if device else serial_ports()
-    results = [probe_recorder_port(port, seconds) for port in ports]
+    if progress and device is None and ports:
+        print(
+            "Probing %d serial port(s)... pass --port COMx (or /dev/ttyACMx) to skip this."
+            % len(ports),
+            file=sys.stderr,
+        )
+    results = []
+    for port in ports:
+        if progress and device is None:
+            print("  probing %s ..." % port.device, file=sys.stderr)
+        results.append(probe_recorder_port(port, seconds))
     if quiet:
         return results
 
@@ -269,7 +279,7 @@ def resolve_reset_port(explicit_port, probe_seconds):
     if explicit_port:
         return explicit_port
 
-    results = probe_recorders(probe_seconds, quiet=True)
+    results = probe_recorders(probe_seconds, quiet=True, progress=True)
     recorders = [result for result in results if result["recorder"]]
     if len(recorders) == 1:
         return recorders[0]["port"].device
@@ -322,7 +332,7 @@ def reset_board(port_device, probe_seconds, reboot_timeout, graceful=True):
             device = wait_for_recorder(serial_number, vid, pid, probe_seconds, reboot_timeout)
             if device:
                 print("Board rebooted and is responding on %s." % device)
-                return True
+                return device
             print(
                 "Board did not return after SHUTDOWN; falling back to hard reset.",
                 file=sys.stderr,
@@ -336,7 +346,7 @@ def reset_board(port_device, probe_seconds, reboot_timeout, graceful=True):
         device = wait_for_recorder(serial_number, vid, pid, probe_seconds, reboot_timeout)
         if device:
             print("Board rebooted (opcode 0x%02X) and is responding on %s." % (opcode, device))
-            return True
+            return device
 
     print(recorder_not_running_message(), file=sys.stderr)
     return False
@@ -379,7 +389,7 @@ def main():
         return
 
     if args.command == "probe":
-        probe_recorders(args.probe_seconds, device=args.port)
+        probe_recorders(args.probe_seconds, device=args.port, progress=True)
         return
 
     if args.command in ("shutdown", "hard-reset"):

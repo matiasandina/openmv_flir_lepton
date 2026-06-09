@@ -65,11 +65,23 @@ runs fine and only misbehaves on specific paths, which is hard to debug.
 uv run sync_board.py            # check, and sync if the board differs
 uv run sync_board.py --check    # report needed/not-needed only; never write
 uv run sync_board.py --force    # copy even if already identical
-uv run sync_board.py --mount /media/$USER/OPENMV   # if auto-detect fails
+
+# If auto-detect cannot find the drive, point it at the mount explicitly:
+uv run sync_board.py --mount /media/$USER/OPENMV   # Linux
+uv run sync_board.py --mount E:\                    # Windows
 ```
 
-It compares the local `main.py` with `main.py` on the board's mounted USB drive
-(auto-detected by the `OPENMV` filesystem label, or pass `--mount`). If they
+It compares the local `main.py` with `main.py` on the board's mounted USB drive,
+auto-detected by the `OPENMV` filesystem label (drive letter on Windows, mount
+point on Linux). If your drive has a different label, pass `--label`, or point at
+it directly with `--mount`. To find the label/letter on Windows run
+`Get-Volume` in PowerShell; on Linux run `lsblk -f`.
+
+To reset the board after copying, the tool needs the board's serial port. With no
+`--port` it probes every serial port, which is slow on Windows (Bluetooth/virtual
+COM ports stall). Pass `--port COM7` (or `/dev/ttyACM0`) to skip the scan; find it
+with `uv run host_control.py list-ports`. After resetting, the tool reads `STATUS`
+once to confirm the board rebooted and is responding. If they
 match it does nothing. If they differ it refuses to write while the board is
 recording, copies the file, verifies the bytes, then resets the board (via the
 same graceful-then-hard reset as `host_control.py shutdown`) so it boots the new

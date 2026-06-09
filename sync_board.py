@@ -78,6 +78,53 @@ def find_mount(explicit, label):
             raise SystemExit("Mount path is not a directory: %s" % explicit)
         return explicit
 
+    if sys.platform.startswith("win"):
+        return find_mount_windows(label)
+    return find_mount_linux(label)
+
+
+def find_mount_windows(label):
+    import ctypes
+    import string
+
+    kernel32 = ctypes.windll.kernel32
+    drives = kernel32.GetLogicalDrives()
+    buf_len = 261  # MAX_PATH + 1, in wide chars
+    matches = []
+    others = []
+    for index, letter in enumerate(string.ascii_uppercase):
+        if not (drives >> index) & 1:
+            continue
+        root = "%s:\\" % letter
+        name = ctypes.create_unicode_buffer(buf_len)
+        fstype = ctypes.create_unicode_buffer(buf_len)
+        ok = kernel32.GetVolumeInformationW(
+            ctypes.c_wchar_p(root), name, buf_len, None, None, None, fstype, buf_len
+        )
+        if not ok:
+            continue
+        if name.value.upper() == label.upper():
+            matches.append(root)
+        else:
+            others.append("%s (label %r)" % (root, name.value))
+
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise SystemExit(
+            "Multiple drives labeled %r: %s. Pass --mount." % (label, ", ".join(matches))
+        )
+
+    message = ["Could not find a drive labeled %r." % label]
+    if others:
+        message.append("Available drives (pass one with --mount, e.g. E:\\):")
+        message.extend("  " + entry for entry in others)
+    else:
+        message.append("No drives found. Pass --mount, e.g. E:\\.")
+    raise SystemExit("\n".join(message))
+
+
+def find_mount_linux(label):
     # Resolve by filesystem label: /dev/disk/by-label/OPENMV -> /dev/sdb1, then
     # look that device up in /proc/mounts to get its mount point.
     link = "/dev/disk/by-label/%s" % label
@@ -108,7 +155,9 @@ def find_board(explicit, probe_seconds):
     device; otherwise we use the sole responding recorder. We do not fall back to
     dumping every serial port -- a missing board just means "reset manually".
     """
-    results = hc.probe_recorders(probe_seconds, quiet=True, device=explicit)
+    results = hc.probe_recorders(
+        probe_seconds, quiet=True, device=explicit, progress=(explicit is None)
+    )
     if explicit:
         recording = any("state=recording" in (r.get("reply") or "") for r in results)
         return explicit, recording
@@ -188,7 +237,17 @@ def main():
         return
 
     print("Resetting board to load new code...")
-    hc.reset_board(port, args.probe_seconds, args.reboot_timeout, graceful=True)
+    device = hc.reset_board(port, args.probe_seconds, args.reboot_timeout, graceful=True)
+    if not device:
+        raise SystemExit("Could not confirm the board came back. Check it and run 'host_control.py status'.")
+
+    # Confirm the rebooted board is answering by reading STATUS once.
+    try:
+        info = hc.find_serial_port(device)
+        status = hc.probe_recorder_port(info, args.probe_seconds)
+        print("Confirmed: board is up on %s -> %s" % (device, status.get("reply") or "(no STATUS reply)"))
+    except SystemExit:
+        print("Board came back on %s but STATUS could not be read." % device)
 
 
 if __name__ == "__main__":
