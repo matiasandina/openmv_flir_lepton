@@ -23,36 +23,52 @@ preview_0000.mjpeg  lossy but easy-to-watch preview movie
 If FPS or SD-card bandwidth suffers, change `RECORD_FORMAT` in `main.py` to
 `"imageio"` for exact values only or `"mjpeg"` for preview video only.
 
-## First test workflow
+## Two scripts
 
-There are two different kinds of preview/control:
-
-```text
-OpenMV IDE preview: live framebuffer view for aiming and setup.
-MJPEG preview file: saved movie for watching after the run.
-```
-
-For a first bench test, use the OpenMV IDE:
-
-1. Copy `main.py` to the OpenMV board / SD card and run it from the IDE.
-2. The script resets the Lepton and then idles.
-3. While idle, the IDE preview window should show live frames if
-   `ENABLE_IDE_PREVIEW = True`.
-4. Use the IDE serial terminal to send:
+Use separate scripts for separate jobs:
 
 ```text
-SET_TIME 2026-06-09T12:34:56
-START
-STATUS
-STOP
+preview.py  OpenMV IDE live preview only; no recording, no commands.
+main.py     headless recorder controlled by host_control.py.
 ```
 
-This mode is for setup and debugging. It is expected to be slower because frames
-are also being pushed to the IDE preview.
+This avoids mixing IDE preview with command-line control. In practice, the IDE
+owns the camera/USB session while previewing, so `host_control.py` should be used
+after the IDE is disconnected.
 
-For production, close/disconnect the IDE and use `host_control.py` from the host
-computer. In that mode there is no live IDE preview; the board records files and
-you inspect `preview_0000.mjpeg` afterward.
+## IDE preview workflow
+
+Use this when you are physically setting up the experiment:
+
+1. Open `preview.py` in OpenMV IDE.
+2. Run it.
+3. Use the IDE framebuffer preview to aim/focus/place the cameras.
+4. Stop the script and disconnect the IDE before using command-line recording.
+
+## Recording workflow
+
+Use this for actual acquisition:
+
+1. Copy `main.py` to the OpenMV board as `/main.py`.
+2. Disconnect the OpenMV IDE.
+3. From the host computer, use `host_control.py` to set time, start, status, and
+   stop recording.
+
+The saved `preview_0000.mjpeg` file is separate from IDE preview. It is a
+watchable movie written during recording for post-run inspection.
+
+Host command examples:
+
+```bash
+python3 host_control.py set-time --port /dev/ttyACM0
+python3 host_control.py start --port /dev/ttyACM0
+python3 host_control.py status --port /dev/ttyACM0
+python3 host_control.py stop --port /dev/ttyACM0
+```
+
+`start` sends the host computer's current local time to the OpenMV RTC first,
+then sends `START`. Use `--no-set-time` only if you have already set the RTC and
+want to preserve it.
 
 ## RTC setup
 
@@ -116,17 +132,8 @@ python host_control.py status --port COM3
 python host_control.py stop --port COM3
 ```
 
-`host_control.py` is a separate host-computer command sender. When the OpenMV IDE
-is connected, it may already own the USB connection, so use one of these modes:
-
-```text
-IDE preview/debug mode: type commands in the OpenMV IDE terminal.
-Headless mode: close/disconnect the IDE and use host_control.py.
-```
-
-When the IDE debug connection is active, `main.py` flushes captured frames to the
-IDE preview window while idle and while recording. This can reduce frame rate, so
-set `ENABLE_IDE_PREVIEW = False` for maximum throughput.
+`host_control.py` is a separate host-computer command sender. Close/disconnect
+the OpenMV IDE before using it so it can open the board serial port.
 
 ## Recording settings
 
@@ -135,7 +142,6 @@ The main settings are at the top of `main.py`:
 ```python
 FRAME_SIZE = sensor.QQVGA
 PIX_FORMAT = sensor.GRAYSCALE
-ENABLE_IDE_PREVIEW = True
 RECORD_FORMAT = "both"
 JPEG_QUALITY = 90
 CLIP_SECONDS = 300

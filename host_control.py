@@ -86,10 +86,12 @@ def list_serial_ports():
         print(port_text(port) + marker)
 
 
-def send_line(port, line, wait):
+def send_lines(port, lines, wait):
     with serial.Serial(port, 115200, timeout=0.2, write_timeout=2) as ser:
-        ser.write((line + "\n").encode("ascii"))
-        ser.flush()
+        for line in lines:
+            ser.write((line + "\n").encode("ascii"))
+            ser.flush()
+            time.sleep(0.05)
         end = time.time() + wait
         while time.time() < end:
             data = ser.readline()
@@ -111,6 +113,11 @@ def main():
     parser.add_argument("line", nargs="?", help="Raw line to send when command is 'send'.")
     parser.add_argument("--port", default=None, help="Serial device, e.g. /dev/ttyACM0.")
     parser.add_argument("--wait", type=float, default=1.0, help="Seconds to print replies after sending.")
+    parser.add_argument(
+        "--no-set-time",
+        action="store_true",
+        help="For 'start', send START without first setting RTC from host local time.",
+    )
     args = parser.parse_args()
 
     if args.command == "list-ports":
@@ -120,16 +127,19 @@ def main():
     port = args.port or guess_port()
 
     if args.command == "set-time":
-        line = local_time_command()
+        lines = [local_time_command()]
+    elif args.command == "start" and not args.no_set_time:
+        lines = [local_time_command(), "START"]
     elif args.command == "send":
         if not args.line:
             raise SystemExit("'send' requires a raw command line.")
-        line = args.line
+        lines = [args.line]
     else:
-        line = args.command.upper().replace("-", "_")
+        lines = [args.command.upper().replace("-", "_")]
 
-    print("Sending to %s: %s" % (port, line))
-    send_line(port, line, args.wait)
+    for line in lines:
+        print("Sending to %s: %s" % (port, line))
+    send_lines(port, lines, args.wait)
 
 
 if __name__ == "__main__":

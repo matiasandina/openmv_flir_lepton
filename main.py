@@ -23,7 +23,6 @@ import time
 MIN_VALID_YEAR = 2024
 REQUIRE_VALID_RTC = True
 AUTOSTART = False
-ENABLE_IDE_PREVIEW = True
 
 FRAME_SIZE = sensor.QQVGA
 PIX_FORMAT = sensor.GRAYSCALE
@@ -296,15 +295,6 @@ def preview_size(recorders):
     return recorder_size(recorders[1])
 
 
-def ide_preview_active(vcp):
-    if not ENABLE_IDE_PREVIEW:
-        return False
-    try:
-        return vcp.debug_mode_enabled()
-    except Exception:
-        return False
-
-
 def print_help():
     print("Commands:")
     print("  SET_TIME 2026-06-09T12:34:56")
@@ -319,10 +309,6 @@ def wait_for_start(vcp):
     if AUTOSTART:
         print("AUTOSTART enabled.")
         return True
-
-    idle_preview = ide_preview_active(vcp)
-    if idle_preview:
-        print("IDE idle preview enabled. Send START when setup is ready.")
 
     while True:
         line = read_command(vcp)
@@ -341,11 +327,7 @@ def wait_for_start(vcp):
         elif line:
             print("Unknown command:", line)
             print_help()
-        if idle_preview:
-            sensor.snapshot()
-            sensor.flush()
-        else:
-            pyb.delay(100)
+        pyb.delay(100)
 
 
 # ------------------------------ Main -----------------------------------
@@ -375,11 +357,8 @@ def main():
         clip_start_ms = time.ticks_ms()
         recorders = open_clip(session_dir, clip_index)
         radiometry = bool(sensor.ioctl(sensor.IOCTL_LEPTON_GET_RADIOMETRY))
-        preview = ide_preview_active(vcp)
 
         print("Recording started:", session_dir)
-        if preview:
-            print("IDE preview enabled.")
 
         try:
             while True:
@@ -403,8 +382,6 @@ def main():
                 clock.tick()
                 img = sensor.snapshot()
                 write_frame(recorders, img)
-                if preview:
-                    sensor.flush()
 
                 now_ticks = time.ticks_ms()
                 now_rtc = rtc_tuple()
