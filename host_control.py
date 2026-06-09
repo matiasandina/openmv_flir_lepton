@@ -25,6 +25,10 @@ OPENMV_VID_PIDS = {
 NON_OPENMV_VIDS = {
     0x16C0,  # PJRC/Teensyduino.
 }
+KNOWN_USB_DEVICES = {
+    (0x16C0, 0x0483): "PJRC Teensy USB Serial",
+    (0x37C5, 0x1204): "OpenMV H7 USB Serial",
+}
 
 
 def serial_ports():
@@ -39,6 +43,9 @@ def port_text(port):
         parts.append("manufacturer=" + port.manufacturer)
     if port.vid is not None and port.pid is not None:
         parts.append("vid:pid=%04x:%04x" % (port.vid, port.pid))
+        known = KNOWN_USB_DEVICES.get((port.vid, port.pid))
+        if known:
+            parts.append("known_device=" + known)
     if port.serial_number:
         parts.append("serial=" + port.serial_number)
     return " | ".join(parts)
