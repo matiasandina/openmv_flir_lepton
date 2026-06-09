@@ -75,6 +75,13 @@ def list_serial_ports():
         print(port_text(port))
 
 
+def find_serial_port(device):
+    for port in serial_ports():
+        if port.device.lower() == device.lower():
+            return port
+    raise SystemExit("Serial port not found: %s" % device)
+
+
 def send_lines(port, lines, wait):
     with serial.Serial(port, 115200, timeout=0.2, write_timeout=2) as ser:
         for line in lines:
@@ -129,8 +136,8 @@ def probe_recorder_port(port, seconds):
     }
 
 
-def probe_recorders(seconds, quiet=False):
-    ports = serial_ports()
+def probe_recorders(seconds, quiet=False, device=None):
+    ports = [find_serial_port(device)] if device else serial_ports()
     results = [probe_recorder_port(port, seconds) for port in ports]
     if quiet:
         return results
@@ -190,7 +197,7 @@ def main():
         return
 
     if args.command == "probe":
-        probe_recorders(args.probe_seconds)
+        probe_recorders(args.probe_seconds, device=args.port)
         return
 
     port = resolve_port(args.port, args.probe_seconds)
