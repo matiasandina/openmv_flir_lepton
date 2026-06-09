@@ -61,14 +61,15 @@ Host command examples:
 
 ```bash
 python3 host_control.py set-time --port /dev/ttyACM0
-python3 host_control.py start --port /dev/ttyACM0
+python3 host_control.py start --port /dev/ttyACM0 --monitor
 python3 host_control.py status --port /dev/ttyACM0
 python3 host_control.py stop --port /dev/ttyACM0
 ```
 
 `start` sends the host computer's current local time to the OpenMV RTC first,
 then sends `START`. Use `--no-set-time` only if you have already set the RTC and
-want to preserve it.
+want to preserve it. `--monitor` sends `STATUS` every second until Ctrl+C; this
+does not stop the recorder.
 
 ## RTC setup
 
@@ -119,7 +120,7 @@ SET_TIME 2026-06-09T12:34:56
 Host helper examples:
 
 ```bash
-python3 host_control.py start --port /dev/ttyACM0
+python3 host_control.py start --port /dev/ttyACM0 --monitor
 python3 host_control.py status --port /dev/ttyACM0
 python3 host_control.py stop --port /dev/ttyACM0
 ```
@@ -127,7 +128,7 @@ python3 host_control.py stop --port /dev/ttyACM0
 Windows examples:
 
 ```powershell
-python host_control.py start --port COM3
+python host_control.py start --port COM3 --monitor
 python host_control.py status --port COM3
 python host_control.py stop --port COM3
 ```

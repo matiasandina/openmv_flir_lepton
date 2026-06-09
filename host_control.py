@@ -89,14 +89,33 @@ def list_serial_ports():
 def send_lines(port, lines, wait):
     with serial.Serial(port, 115200, timeout=0.2, write_timeout=2) as ser:
         for line in lines:
-            ser.write((line + "\n").encode("ascii"))
-            ser.flush()
+            send_serial_line(ser, line)
             time.sleep(0.05)
-        end = time.time() + wait
-        while time.time() < end:
-            data = ser.readline()
-            if data:
-                print(data.decode("utf-8", "replace").rstrip())
+        print_replies(ser, wait)
+
+
+def send_serial_line(ser, line):
+    ser.write((line + "\n").encode("ascii"))
+    ser.flush()
+
+
+def print_replies(ser, seconds):
+    end = time.time() + seconds
+    while time.time() < end:
+        data = ser.readline()
+        if data:
+            print(data.decode("utf-8", "replace").rstrip())
+
+
+def monitor_status(port, interval):
+    print("Monitoring %s every %.1fs. Press Ctrl+C to stop monitoring." % (port, interval))
+    with serial.Serial(port, 115200, timeout=0.2, write_timeout=2) as ser:
+        try:
+            while True:
+                send_serial_line(ser, "STATUS")
+                print_replies(ser, interval)
+        except KeyboardInterrupt:
+            print("\nMonitor stopped. Recorder keeps running unless you send STOP.")
 
 
 def local_time_command():
@@ -108,11 +127,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("list-ports", "set-time", "start", "stop", "status", "help", "send"),
+        choices=("list-ports", "monitor", "set-time", "start", "stop", "status", "help", "send"),
     )
     parser.add_argument("line", nargs="?", help="Raw line to send when command is 'send'.")
     parser.add_argument("--port", default=None, help="Serial device, e.g. /dev/ttyACM0.")
     parser.add_argument("--wait", type=float, default=1.0, help="Seconds to print replies after sending.")
+    parser.add_argument("--interval", type=float, default=1.0, help="Seconds between STATUS polls.")
+    parser.add_argument("--monitor", action="store_true", help="After 'start', print STATUS every interval.")
     parser.add_argument(
         "--no-set-time",
         action="store_true",
@@ -125,6 +146,10 @@ def main():
         return
 
     port = args.port or guess_port()
+
+    if args.command == "monitor":
+        monitor_status(port, args.interval)
+        return
 
     if args.command == "set-time":
         lines = [local_time_command()]
@@ -140,6 +165,9 @@ def main():
     for line in lines:
         print("Sending to %s: %s" % (port, line))
     send_lines(port, lines, args.wait)
+
+    if args.command == "start" and args.monitor:
+        monitor_status(port, args.interval)
 
 
 if __name__ == "__main__":
