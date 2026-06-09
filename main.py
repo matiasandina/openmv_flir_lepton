@@ -23,6 +23,7 @@ import time
 MIN_VALID_YEAR = 2024
 REQUIRE_VALID_RTC = True
 AUTOSTART = False
+STORAGE_ROOT = ""
 
 FRAME_SIZE = sensor.QQVGA
 PIX_FORMAT = sensor.GRAYSCALE
@@ -46,8 +47,17 @@ TEMP_MAX_C = 40.0
 def mkdir(path):
     try:
         os.mkdir(path)
+        return True
     except OSError:
-        pass
+        return False
+
+
+def join_path(parent, child):
+    if not parent:
+        return child
+    if parent.endswith("/"):
+        return parent + child
+    return parent + "/" + child
 
 
 def weekday_monday1(year, month, day):
@@ -324,6 +334,8 @@ def wait_for_start(vcp):
             print_help()
         elif line and line.startswith("SET_TIME "):
             set_rtc_from_usb_line(line)
+        elif line == "STOP":
+            print("state=idle; STOP ignored")
         elif line:
             print("Unknown command:", line)
             print_help()
@@ -341,11 +353,19 @@ def main():
         wait_for_start(vcp)
 
         session_name = timestamp_from_tuple(rtc_tuple())
-        session_dir = "/" + session_name
-        mkdir(session_dir)
+        session_dir = join_path(STORAGE_ROOT, session_name)
+        if not mkdir(session_dir):
+            print("Storage error: could not create session directory", session_dir)
+            print("Check that the OpenMV filesystem or SD card is mounted/writable.")
+            continue
 
-        log_path = "%s/frames.csv" % session_dir
-        log = open(log_path, "w")
+        log_path = join_path(session_dir, "frames.csv")
+        try:
+            log = open(log_path, "w")
+        except OSError as err:
+            print("Storage error: could not open", log_path, err)
+            print("Check that the OpenMV filesystem or SD card is mounted/writable.")
+            continue
         log.write(
             "frame,clip,raw_frame,preview_frame,ticks_ms,rtc_iso,fps,raw_bytes,preview_bytes,format,radiometry,temp_min_c,temp_max_c\n"
         )

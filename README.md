@@ -7,7 +7,7 @@ clip byte count.
 Each run creates a session directory on the OpenMV filesystem:
 
 ```text
-/YYYYMMDDTHHMMSS/
+YYYYMMDDTHHMMSS/
   raw_0000.bin
   preview_0000.mjpeg
   frames.csv
@@ -148,10 +148,15 @@ The main settings are at the top of `main.py`:
 ```python
 FRAME_SIZE = sensor.QQVGA
 PIX_FORMAT = sensor.GRAYSCALE
+STORAGE_ROOT = ""
 RECORD_FORMAT = "both"
 JPEG_QUALITY = 90
 CLIP_SECONDS = 300
 ```
+
+`STORAGE_ROOT = ""` writes session folders next to `main.py` on the board's
+mounted filesystem. If you later want to force SD-card storage and know the
+OpenMV mount path, set this to that path.
 
 `CLIP_SECONDS` closes and starts a new clip every five minutes so a long run is
 less likely to lose everything after a power interruption. Set it to `0` for one
