@@ -18,17 +18,7 @@ except ImportError:
     raise
 
 
-OPENMV_TEXT_HINTS = ("openmv", "pyboard", "stmicroelectronics", "stm32")
-OPENMV_VID_PIDS = {
-    (0x37C5, 0x1204),  # Observed OpenMV H7 USB serial on Windows.
-}
-NON_OPENMV_VIDS = {
-    0x16C0,  # PJRC/Teensyduino.
-}
-KNOWN_USB_DEVICES = {
-    (0x16C0, 0x0483): "PJRC Teensy USB Serial",
-    (0x37C5, 0x1204): "OpenMV H7 USB Serial",
-}
+RECORDER_STATUS_PREFIXES = ("state=idle", "state=recording")
 
 
 def serial_ports():
@@ -43,70 +33,37 @@ def port_text(port):
         parts.append("manufacturer=" + port.manufacturer)
     if port.vid is not None and port.pid is not None:
         parts.append("vid:pid=%04x:%04x" % (port.vid, port.pid))
-        known = KNOWN_USB_DEVICES.get((port.vid, port.pid))
-        if known:
-            parts.append("known_device=" + known)
     if port.serial_number:
         parts.append("serial=" + port.serial_number)
+    if port.hwid:
+        parts.append("hwid=" + port.hwid)
     return " | ".join(parts)
 
 
-def is_known_non_openmv(port):
-    return port.vid in NON_OPENMV_VIDS
+def resolve_port(explicit_port, probe_seconds):
+    if explicit_port:
+        return explicit_port
 
+    results = probe_recorders(probe_seconds, quiet=True)
+    recorders = [result for result in results if result["recorder"]]
+    if len(recorders) == 1:
+        return recorders[0]["port"].device
 
-def openmv_match_reason(port):
-    if is_known_non_openmv(port):
-        return None
+    if len(recorders) > 1:
+        print("Multiple recorder ports responded:", file=sys.stderr)
+        for result in recorders:
+            print("  " + result["port"].device + " | " + result["reply"], file=sys.stderr)
+        raise SystemExit("Use --port COMx to select one.")
 
-    if port.vid is not None and port.pid is not None:
-        vid_pid = (port.vid, port.pid)
-        if vid_pid in OPENMV_VID_PIDS:
-            return "OpenMV VID:PID candidate"
-
-    text = " ".join(
-        str(x or "")
-        for x in (
-            port.device,
-            port.description,
-            port.manufacturer,
-            port.product,
-            port.interface,
-        )
-    ).lower()
-    for hint in OPENMV_TEXT_HINTS:
-        if hint in text:
-            return "OpenMV text candidate"
-
-    return None
-
-
-def looks_like_openmv(port):
-    return openmv_match_reason(port) is not None
-
-
-def guess_port():
     ports = serial_ports()
     if not ports:
         raise SystemExit("No serial ports found.")
 
-    candidates = [port for port in ports if looks_like_openmv(port)]
-    if len(candidates) == 1:
-        return candidates[0].device
-
-    if len(candidates) > 1:
-        print("Multiple likely OpenMV ports found:", file=sys.stderr)
-        for port in candidates:
-            print("  " + port_text(port), file=sys.stderr)
-        raise SystemExit("Use --port COMx to select one.")
-
-    if len(ports) == 1:
-        return ports[0].device
-
-    print("Multiple serial ports found:", file=sys.stderr)
+    print("No recorder ports responded to STATUS.", file=sys.stderr)
+    print("Available serial ports:", file=sys.stderr)
     for port in ports:
         print("  " + port_text(port), file=sys.stderr)
-    raise SystemExit("Use --port COMx to select one.")
+    raise SystemExit("Use 'probe' to inspect ports, or pass --port COMx explicitly.")
 
 
 def list_serial_ports():
@@ -115,14 +72,7 @@ def list_serial_ports():
         print("No serial ports found.")
         return
     for port in ports:
-        reason = openmv_match_reason(port)
-        if reason:
-            marker = " * " + reason
-        elif is_known_non_openmv(port):
-            marker = " * known non-OpenMV"
-        else:
-            marker = ""
-        print(port_text(port) + marker)
+        print(port_text(port))
 
 
 def send_lines(port, lines, wait):
@@ -139,11 +89,65 @@ def send_serial_line(ser, line):
 
 
 def print_replies(ser, seconds):
+    for line in read_replies(ser, seconds):
+        print(line)
+
+
+def read_replies(ser, seconds):
+    lines = []
     end = time.time() + seconds
     while time.time() < end:
         data = ser.readline()
         if data:
-            print(data.decode("utf-8", "replace").rstrip())
+            lines.append(data.decode("utf-8", "replace").rstrip())
+    return lines
+
+
+def is_recorder_reply(line):
+    return any(line.startswith(prefix) for prefix in RECORDER_STATUS_PREFIXES)
+
+
+def probe_recorder_port(port, seconds):
+    try:
+        with serial.Serial(port.device, 115200, timeout=0.2, write_timeout=2) as ser:
+            send_serial_line(ser, "STATUS")
+            replies = read_replies(ser, seconds)
+    except Exception as err:
+        return {
+            "port": port,
+            "recorder": False,
+            "reply": "",
+            "error": str(err),
+        }
+
+    recorder_replies = [line for line in replies if is_recorder_reply(line)]
+    return {
+        "port": port,
+        "recorder": bool(recorder_replies),
+        "reply": recorder_replies[0] if recorder_replies else " | ".join(replies),
+        "error": "",
+    }
+
+
+def probe_recorders(seconds, quiet=False):
+    ports = serial_ports()
+    results = [probe_recorder_port(port, seconds) for port in ports]
+    if quiet:
+        return results
+
+    if not results:
+        print("No serial ports found.")
+        return results
+
+    for result in results:
+        port = result["port"]
+        if result["recorder"]:
+            print("%s | recorder | %s" % (port_text(port), result["reply"]))
+        elif result["error"]:
+            print("%s | unavailable | %s" % (port_text(port), result["error"]))
+        else:
+            print("%s | no recorder response" % port_text(port))
+    return results
 
 
 def monitor_status(port, interval):
@@ -166,12 +170,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("list-ports", "monitor", "set-time", "start", "stop", "status", "help", "send"),
+        choices=("list-ports", "probe", "monitor", "set-time", "start", "stop", "status", "help", "send"),
     )
     parser.add_argument("line", nargs="?", help="Raw line to send when command is 'send'.")
     parser.add_argument("--port", default=None, help="Serial device, e.g. /dev/ttyACM0.")
     parser.add_argument("--wait", type=float, default=1.0, help="Seconds to print replies after sending.")
     parser.add_argument("--interval", type=float, default=1.0, help="Seconds between STATUS polls.")
+    parser.add_argument("--probe-seconds", type=float, default=0.7, help="Seconds to wait for STATUS replies in probe.")
     parser.add_argument("--monitor", action="store_true", help="After 'start', print STATUS every interval.")
     parser.add_argument(
         "--no-set-time",
@@ -184,7 +189,11 @@ def main():
         list_serial_ports()
         return
 
-    port = args.port or guess_port()
+    if args.command == "probe":
+        probe_recorders(args.probe_seconds)
+        return
+
+    port = resolve_port(args.port, args.probe_seconds)
 
     if args.command == "monitor":
         monitor_status(port, args.interval)

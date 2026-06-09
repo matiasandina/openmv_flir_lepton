@@ -99,13 +99,16 @@ plugged in, list them first:
 
 ```powershell
 uv run host_control.py list-ports
+uv run host_control.py probe
 uv run host_control.py set-time --port COM3
 ```
 
-If exactly one OpenMV candidate serial port is found, `--port` can be
-omitted. If several are found, the script asks you to choose one explicitly.
-Generic `USB Serial Device` labels are not enough to identify the board; use the
-COM port metadata and known connected devices.
+`list-ports` prints raw Windows/pyserial metadata only. `probe` opens each serial
+port, sends `STATUS`, and marks a port as `recorder` only if it answers with the
+recorder protocol, such as `state=idle` or `state=recording`.
+
+If exactly one recorder answers, `--port` can be omitted for commands like
+`start`. If several answer, the script asks you to choose one explicitly.
 
 ## Recording control
 
