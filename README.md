@@ -102,8 +102,10 @@ uv run host_control.py list-ports
 uv run host_control.py set-time --port COM3
 ```
 
-If exactly one likely OpenMV/STM USB serial port is found, `--port` can be
+If exactly one OpenMV candidate serial port is found, `--port` can be
 omitted. If several are found, the script asks you to choose one explicitly.
+Generic `USB Serial Device` labels are not enough to identify the board; use the
+COM port metadata and known connected devices.
 
 ## Recording control
 

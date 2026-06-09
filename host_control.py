@@ -18,7 +18,13 @@ except ImportError:
     raise
 
 
-OPENMV_HINTS = ("openmv", "pyboard", "stm", "usb serial", "cdc")
+OPENMV_TEXT_HINTS = ("openmv", "pyboard", "stmicroelectronics", "stm32")
+OPENMV_VID_PIDS = {
+    (0x37C5, 0x1204),  # Observed OpenMV H7 USB serial on Windows.
+}
+NON_OPENMV_VIDS = {
+    0x16C0,  # PJRC/Teensyduino.
+}
 
 
 def serial_ports():
@@ -38,7 +44,19 @@ def port_text(port):
     return " | ".join(parts)
 
 
-def looks_like_openmv(port):
+def is_known_non_openmv(port):
+    return port.vid in NON_OPENMV_VIDS
+
+
+def openmv_match_reason(port):
+    if is_known_non_openmv(port):
+        return None
+
+    if port.vid is not None and port.pid is not None:
+        vid_pid = (port.vid, port.pid)
+        if vid_pid in OPENMV_VID_PIDS:
+            return "OpenMV VID:PID candidate"
+
     text = " ".join(
         str(x or "")
         for x in (
@@ -49,7 +67,15 @@ def looks_like_openmv(port):
             port.interface,
         )
     ).lower()
-    return any(hint in text for hint in OPENMV_HINTS)
+    for hint in OPENMV_TEXT_HINTS:
+        if hint in text:
+            return "OpenMV text candidate"
+
+    return None
+
+
+def looks_like_openmv(port):
+    return openmv_match_reason(port) is not None
 
 
 def guess_port():
@@ -82,7 +108,13 @@ def list_serial_ports():
         print("No serial ports found.")
         return
     for port in ports:
-        marker = " * likely OpenMV" if looks_like_openmv(port) else ""
+        reason = openmv_match_reason(port)
+        if reason:
+            marker = " * " + reason
+        elif is_known_non_openmv(port):
+            marker = " * known non-OpenMV"
+        else:
+            marker = ""
         print(port_text(port) + marker)
 
 
