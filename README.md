@@ -60,10 +60,10 @@ watchable movie written during recording for post-run inspection.
 Host command examples:
 
 ```bash
-python3 host_control.py set-time --port /dev/ttyACM0
-python3 host_control.py start --port /dev/ttyACM0 --monitor
-python3 host_control.py status --port /dev/ttyACM0
-python3 host_control.py stop --port /dev/ttyACM0
+uv run host_control.py set-time --port /dev/ttyACM0
+uv run host_control.py start --port /dev/ttyACM0 --monitor
+uv run host_control.py status --port /dev/ttyACM0
+uv run host_control.py stop --port /dev/ttyACM0
 ```
 
 `start` sends the host computer's current local time to the OpenMV RTC first,
@@ -88,18 +88,18 @@ The timestamp should be local wall time unless you decide to standardize on UTC.
 If you want the board to start recording even with an invalid RTC, change
 `REQUIRE_VALID_RTC = False` in `main.py`.
 
-From a Linux host with `pyserial` installed, you can also use:
+From a Linux host, use:
 
 ```bash
-python3 host_control.py set-time --port /dev/ttyACM0
+uv run host_control.py set-time --port /dev/ttyACM0
 ```
 
 On Windows, ports are usually named `COM3`, `COM4`, etc. With many USB devices
 plugged in, list them first:
 
 ```powershell
-python host_control.py list-ports
-python host_control.py set-time --port COM3
+uv run host_control.py list-ports
+uv run host_control.py set-time --port COM3
 ```
 
 If exactly one likely OpenMV/STM USB serial port is found, `--port` can be
@@ -120,17 +120,17 @@ SET_TIME 2026-06-09T12:34:56
 Host helper examples:
 
 ```bash
-python3 host_control.py start --port /dev/ttyACM0 --monitor
-python3 host_control.py status --port /dev/ttyACM0
-python3 host_control.py stop --port /dev/ttyACM0
+uv run host_control.py start --port /dev/ttyACM0 --monitor
+uv run host_control.py status --port /dev/ttyACM0
+uv run host_control.py stop --port /dev/ttyACM0
 ```
 
 Windows examples:
 
 ```powershell
-python host_control.py start --port COM3 --monitor
-python host_control.py status --port COM3
-python host_control.py stop --port COM3
+uv run host_control.py start --port COM3 --monitor
+uv run host_control.py status --port COM3
+uv run host_control.py stop --port COM3
 ```
 
 `host_control.py` is a separate host-computer command sender. Close/disconnect
