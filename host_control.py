@@ -19,6 +19,16 @@ except ImportError:
 
 
 RECORDER_STATUS_PREFIXES = ("state=idle", "state=recording")
+RECORDER_COMMANDS = {"START", "STOP", "STATUS", "SHUTDOWN", "HELP"}
+
+
+def recorder_not_running_message() -> str:
+    return (
+        "Recorder did not reply; the board echoed the command instead. "
+        "That usually means main.py is not running, the board is in the MicroPython REPL, "
+        "or SHUTDOWN has already exited the recorder. Reset/power-cycle the board, wait for boot, "
+        "then run 'probe' until it reports 'recorder'."
+    )
 
 
 def serial_ports():
@@ -87,7 +97,9 @@ def send_lines(port, lines, wait):
         for line in lines:
             send_serial_line(ser, line)
             time.sleep(0.05)
-        print_replies(ser, wait)
+        replies = print_replies(ser, wait)
+        if replies_indicate_echo(replies, sent_lines=lines):
+            print(recorder_not_running_message(), file=sys.stderr)
 
 
 def send_serial_line(ser, line):
@@ -96,8 +108,10 @@ def send_serial_line(ser, line):
 
 
 def print_replies(ser, seconds):
-    for line in read_replies(ser, seconds):
+    lines = read_replies(ser, seconds)
+    for line in lines:
         print(line)
+    return lines
 
 
 def read_replies(ser, seconds):
@@ -114,6 +128,23 @@ def is_recorder_reply(line):
     return any(line.startswith(prefix) for prefix in RECORDER_STATUS_PREFIXES)
 
 
+def is_echo_reply(line, sent_lines=None):
+    text = line.strip()
+    if not text:
+        return False
+    if sent_lines and text in sent_lines:
+        return True
+    if text in RECORDER_COMMANDS:
+        return True
+    if text.startswith("SET_TIME "):
+        return True
+    return False
+
+
+def replies_indicate_echo(replies, sent_lines=None):
+    return bool(replies) and any(is_echo_reply(line, sent_lines=sent_lines) for line in replies)
+
+
 def probe_recorder_port(port, seconds):
     try:
         with serial.Serial(port.device, 115200, timeout=0.2, write_timeout=2) as ser:
@@ -128,10 +159,12 @@ def probe_recorder_port(port, seconds):
         }
 
     recorder_replies = [line for line in replies if is_recorder_reply(line)]
+    echo_replies = [line for line in replies if is_echo_reply(line, sent_lines=["STATUS"])]
     return {
         "port": port,
         "recorder": bool(recorder_replies),
         "reply": recorder_replies[0] if recorder_replies else " | ".join(replies),
+        "echoed": bool(echo_replies),
         "error": "",
     }
 
@@ -150,6 +183,8 @@ def probe_recorders(seconds, quiet=False, device=None):
         port = result["port"]
         if result["recorder"]:
             print("%s | recorder | %s" % (port_text(port), result["reply"]))
+        elif result.get("echoed"):
+            print("%s | command echo; recorder not running | %s" % (port_text(port), result["reply"]))
         elif result["error"]:
             print("%s | unavailable | %s" % (port_text(port), result["error"]))
         else:
@@ -160,10 +195,18 @@ def probe_recorders(seconds, quiet=False, device=None):
 def monitor_status(port, interval):
     print("Monitoring %s every %.1fs. Press Ctrl+C to stop monitoring." % (port, interval))
     with serial.Serial(port, 115200, timeout=0.2, write_timeout=2) as ser:
+        echo_count = 0
         try:
             while True:
                 send_serial_line(ser, "STATUS")
-                print_replies(ser, interval)
+                replies = print_replies(ser, interval)
+                if any(is_recorder_reply(line) for line in replies):
+                    echo_count = 0
+                elif replies_indicate_echo(replies, sent_lines=["STATUS"]):
+                    echo_count += 1
+                    if echo_count >= 3:
+                        print(recorder_not_running_message(), file=sys.stderr)
+                        return
         except KeyboardInterrupt:
             print("\nMonitor stopped. Recorder keeps running unless you send STOP.")
 
@@ -177,7 +220,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("list-ports", "probe", "monitor", "set-time", "start", "stop", "status", "help", "send"),
+        choices=(
+            "list-ports",
+            "probe",
+            "monitor",
+            "set-time",
+            "start",
+            "stop",
+            "status",
+            "shutdown",
+            "help",
+            "send",
+        ),
     )
     parser.add_argument("line", nargs="?", help="Raw line to send when command is 'send'.")
     parser.add_argument("--port", default=None, help="Serial device, e.g. /dev/ttyACM0.")

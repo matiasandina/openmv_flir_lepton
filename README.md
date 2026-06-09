@@ -52,7 +52,8 @@ Use this for actual acquisition:
 1. Copy `main.py` to the OpenMV board as `/main.py`.
 2. Disconnect the OpenMV IDE.
 3. From the host computer, use `host_control.py` to set time, start, status, and
-   stop recording.
+   stop recording. After stopping, use `shutdown` before unplugging/remounting
+   storage.
 
 The saved `preview_0000.mjpeg` file is separate from IDE preview. It is a
 watchable movie written during recording for post-run inspection.
@@ -64,6 +65,7 @@ uv run host_control.py set-time --port /dev/ttyACM0
 uv run host_control.py start --port /dev/ttyACM0 --monitor
 uv run host_control.py status --port /dev/ttyACM0
 uv run host_control.py stop --port /dev/ttyACM0
+uv run host_control.py shutdown --port /dev/ttyACM0
 ```
 
 `start` sends the host computer's current local time to the OpenMV RTC first,
@@ -118,9 +120,24 @@ After boot and RTC setup, the board waits for serial commands:
 START
 STOP
 STATUS
+SHUTDOWN
 HELP
 SET_TIME 2026-06-09T12:34:56
 ```
+
+`SHUTDOWN` is an idle-only command. Send `STOP` first if recording is active. It
+syncs storage and exits `main.py`, making it safer to unplug/reset before copying
+files from the OpenMV filesystem.
+
+If host commands print back raw text like `STATUS`, `STOP`, or
+`SET_TIME ...START`, the board is echoing serial input rather than running the
+recorder command loop. Reset or power-cycle the board, wait for boot, then run:
+
+```powershell
+uv run host_control.py probe --port COM3 --probe-seconds 2
+```
+
+Do not start acquisition until `probe` reports `recorder`.
 
 Host helper examples:
 
@@ -128,6 +145,7 @@ Host helper examples:
 uv run host_control.py start --port /dev/ttyACM0 --monitor
 uv run host_control.py status --port /dev/ttyACM0
 uv run host_control.py stop --port /dev/ttyACM0
+uv run host_control.py shutdown --port /dev/ttyACM0
 ```
 
 Windows examples:
@@ -136,6 +154,7 @@ Windows examples:
 uv run host_control.py start --port COM3 --monitor
 uv run host_control.py status --port COM3
 uv run host_control.py stop --port COM3
+uv run host_control.py shutdown --port COM3
 ```
 
 `host_control.py` is a separate host-computer command sender. Close/disconnect

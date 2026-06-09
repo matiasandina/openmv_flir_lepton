@@ -311,6 +311,7 @@ def print_help():
     print("  START")
     print("  STOP")
     print("  STATUS")
+    print("  SHUTDOWN")
     print("  HELP")
 
 
@@ -336,6 +337,13 @@ def wait_for_start(vcp):
             set_rtc_from_usb_line(line)
         elif line == "STOP":
             print("state=idle; STOP ignored")
+        elif line == "SHUTDOWN":
+            try:
+                os.sync()
+            except Exception:
+                pass
+            print("SHUTDOWN complete. Safe to unplug or reset.")
+            return False
         elif line:
             print("Unknown command:", line)
             print_help()
@@ -350,7 +358,8 @@ def main():
     print_help()
 
     while True:
-        wait_for_start(vcp)
+        if not wait_for_start(vcp):
+            return
 
         session_name = timestamp_from_tuple(rtc_tuple())
         session_dir = join_path(STORAGE_ROOT, session_name)
@@ -395,6 +404,8 @@ def main():
                     print_help()
                 elif command and command.startswith("SET_TIME "):
                     set_rtc_from_usb_line(command)
+                elif command == "SHUTDOWN":
+                    print("Stop recording before SHUTDOWN.")
                 elif command:
                     print("Unknown command:", command)
                     print_help()
